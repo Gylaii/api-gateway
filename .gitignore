@@ -49,3 +49,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+## kotlin language server
+kls_database.db
