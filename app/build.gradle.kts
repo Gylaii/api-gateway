@@ -7,11 +7,7 @@ plugins {
 
 
 application {
-    mainClass.set("AppKt")
-}
-
-repositories {
-    mavenCentral()
+    mainClass.set("com.example.AppKt")
 }
 
 dependencies {
@@ -42,6 +38,13 @@ dependencies {
 
     implementation("ch.qos.logback:logback-classic:1.4.14")
 
+    implementation("com.github.Gylaii:keydb-client-lib:v0.1.1")
+
     testImplementation("io.ktor:ktor-server-tests:2.3.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test:1.8.22")
+}
+
+repositories {
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
 }
