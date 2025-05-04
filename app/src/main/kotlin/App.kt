@@ -52,7 +52,7 @@ data class ResponseMessage(val correlationId: String, val payload: String)
 fun main() {
     val logger = LoggerFactory.getLogger("APIGateway")
 
-    val redisClient = RedisClient.create("redis://localhost:6379")
+    val redisClient = RedisClient.create("redis://${System.getenv("KEYDB_HOST") ?: "localhost"}:${System.getenv("KEYDB_PORT") ?: "6379"}")
     val connection: StatefulRedisConnection<String, String> = redisClient.connect()
     val commands: RedisCommands<String, String> = connection.sync()
 
