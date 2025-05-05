@@ -49,6 +49,125 @@ data class RequestMessage(val type: String, val correlationId: String, val paylo
 @Serializable
 data class ResponseMessage(val correlationId: String, val payload: String)
 
+@Serializable
+data class UserProfile(
+    val id: String,
+    val email: String,
+    val name: String,
+    val height: Int? = null,
+    val weight: Int? = null,
+    val goal: String? = null,
+    val activityLevel: String? = null,
+    val createdAt: String
+)
+
+@Serializable
+data class UpdateInfoRequest(
+    val name: String
+)
+
+@Serializable
+data class UpdateMetricsRequest(
+    val height: Int? = null,
+    val weight: Int? = null,
+    val goal: String? = null,
+    val activityLevel: String? = null
+)
+
+@Serializable
+data class UserInfo(
+    val id: String,
+    val email: String,
+    val name: String,
+    val createdAt: String
+)
+
+@Serializable
+data class UserMetrics(
+    val height: Int? = null,
+    val weight: Int? = null,
+    val goal: String? = null,
+    val activityLevel: String? = null
+)
+
+@Serializable
+data class HistoryQueryParams(
+    val from: String? = null,
+    val to: String? = null,
+    val field: String? = null
+)
+
+@Serializable
+data class HistoryRecord(
+    val field: String,
+    val oldValue: Int?,
+    val newValue: Int?,
+    val changedAt: String
+)
+
+suspend inline fun <reified T> ApplicationCall.updateThroughQueue(
+    type: String,
+    userId: String,
+    body: T,
+    commands: RedisCommands<String, String>,
+    responseChannel: Channel<ResponseMessage>
+): Any {
+    val correlationId = UUID.randomUUID().toString()
+    val payload = "$userId;${Json.encodeToString(body)}"
+    commands.lpush("user-service:request-queue",
+        Json.encodeToString(RequestMessage(type, correlationId, payload))
+    )
+
+    return try {
+        withTimeout(5_000) {
+            while (true) {
+                val resp = responseChannel.receive()
+                if (resp.correlationId == correlationId) {
+                    val profile = Json.decodeFromString<UserProfile?>(resp.payload)
+                    return@withTimeout profile ?: HttpStatusCode.NotFound
+                }
+            }
+        }
+    } catch (_: TimeoutCancellationException) {
+        HttpStatusCode.InternalServerError
+    }
+}
+
+suspend inline fun <reified T> ApplicationCall.requestOne(
+    type: String,
+    userId: String,
+    commands: RedisCommands<String, String>,
+    responseChannel: Channel<ResponseMessage>
+): Any {
+    val correlationId = UUID.randomUUID().toString()
+    commands.lpush(
+        "user-service:request-queue",
+        Json.encodeToString(RequestMessage(type, correlationId, userId))
+    )
+
+    return try {
+        withTimeout(5_000) {
+            while (true) {
+                val resp = responseChannel.receive()
+                if (resp.correlationId == correlationId) {
+                    val obj = Json.decodeFromString<T?>(resp.payload)
+                    return@withTimeout obj ?: HttpStatusCode.NotFound
+                }
+            }
+        }
+    } catch (_: TimeoutCancellationException) {
+        HttpStatusCode.InternalServerError
+    }
+}
+
+suspend fun ApplicationCall.respondSmart(result: Any) {
+    when (result) {
+        is HttpStatusCode -> respond(result)
+        else              -> respond(HttpStatusCode.OK, result)
+    }
+}
+
+
 fun main() {
     val logger = LoggerFactory.getLogger("APIGateway")
 
@@ -181,6 +300,51 @@ fun main() {
                     val email = principal?.payload?.getClaim("email")?.asString() ?: "unknown"
                     logger.info("Пользователь $email получает доступ к /api/protected")
                     call.respond(HttpStatusCode.OK, "Доступ разрешён для пользователя: $email")
+                }
+                get("/api/user/profile/info") {
+                    val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                    val res = call.requestOne<UserInfo>(
+                        "get-profile-info", uid, commands, responseChannel
+                    )
+                    call.respondSmart(res)
+                }
+
+                get("/api/user/profile/metrics") {
+                    val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                    val res = call.requestOne<UserMetrics>(
+                        "get-profile-metrics", uid, commands, responseChannel
+                    )
+                    call.respondSmart(res)
+                }
+
+                put("/api/user/profile/info") {
+                    val uid  = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                    val body = call.receive<UpdateInfoRequest>()
+                    val res  = call.updateThroughQueue(
+                        "update-profile-info", uid, body, commands, responseChannel
+                    )
+                    call.respondSmart(res)
+                }
+
+                put("/api/user/profile/metrics") {
+                    val uid  = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                    val body = call.receive<UpdateMetricsRequest>()
+                    val res  = call.updateThroughQueue(
+                        "update-profile-metrics", uid, body, commands, responseChannel
+                    )
+                    call.respondSmart(res)
+                }
+
+                get("/api/user/profile/history") {
+                    val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                    val from = call.request.queryParameters["from"]
+                    val to = call.request.queryParameters["to"]
+                    val field = call.request.queryParameters["field"]
+
+                    val payload = HistoryQueryParams(from, to, field)
+                    val combined = "$uid;${Json.encodeToString(payload)}"
+                    val res = call.requestOne<List<HistoryRecord>>("get-metrics-history", combined, commands, responseChannel)
+                    call.respondSmart(res)
                 }
             }
         }
