@@ -123,6 +123,8 @@ data class SearchMeal(
     val page: Int,
     @SerialName("page_size")
     val pageSize: Int,
+    @SerialName("type")
+    val type: String,
 )
 
 suspend inline fun <reified T> ApplicationCall.updateThroughQueue(
@@ -403,7 +405,8 @@ fun main() {
                             correlationId = requestId,
                             searchTerm = searchTerm,
                             page = page,
-                            pageSize = pageSize
+                            pageSize = pageSize,
+                            type = "SEARCH_MEAL",
                         )
 
                         commands.publish(
