@@ -140,9 +140,9 @@ data class SaveMeal(
     @SerialName("dishes")
     val dishes: List<Dish>,
     @SerialName("correlation_id")
-    var correlationId: String,
+    var correlationId: String? = null,
     @SerialName("type")
-    val type: String = "SAVE_MEAL"
+    var type: String? = null,
 )
 
 @Serializable
@@ -157,9 +157,9 @@ data class GetMeal(
     @SerialName("user_id")
     var userId: String? = null,
     @SerialName("correlation_id")
-    var correlationId: String,
+    var correlationId: String? = null,
     @SerialName("type")
-    val type: String = "GET_MEAL"
+    val type: String
 )
 
 suspend inline fun <reified T> ApplicationCall.updateThroughQueue(
@@ -463,6 +463,7 @@ fun main() {
                         call.respond(HttpStatusCode.BadRequest)
                     }
                 }
+
                 post("/api/nutrition/meal") {
                     try {
                         val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
@@ -470,6 +471,7 @@ fun main() {
                         val correlationId = UUID.randomUUID().toString()
                         body.userId = uid
                         body.correlationId = correlationId
+                        body.type = "SAVE_MEAL"
                         val deferred = CompletableDeferred<ResponseMessage>()
                         pendingResponses[correlationId] = deferred
 
@@ -495,10 +497,12 @@ fun main() {
                 get("/api/nutrition/meal") {
                     try {
                         val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
-                        val body = call.receive<GetMeal>()
                         val correlationId = UUID.randomUUID().toString()
-                        body.userId = uid
-                        body.correlationId = correlationId
+                        val body = GetMeal(
+                            userId = uid,
+                            correlationId = correlationId,
+                            type = "GET_MEAL",
+                        )
                         val deferred = CompletableDeferred<ResponseMessage>()
                         pendingResponses[correlationId] = deferred
 
@@ -520,6 +524,7 @@ fun main() {
                         call.respond(HttpStatusCode.BadRequest)
                     }
                 }
+
             }
         }
     }.start(wait = true)
