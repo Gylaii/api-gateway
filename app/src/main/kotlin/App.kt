@@ -127,6 +127,41 @@ data class SearchMeal(
     val type: String,
 )
 
+@Serializable
+data class SaveMeal(
+    @SerialName("user_id")
+    var userId: String? = null,
+    @SerialName("meal")
+    val meal: String,
+    @SerialName("date")
+    val date: String,
+    @SerialName("time")
+    val time: String,
+    @SerialName("dishes")
+    val dishes: List<Dish>,
+    @SerialName("correlation_id")
+    var correlationId: String,
+    @SerialName("type")
+    val type: String = "SAVE_MEAL"
+)
+
+@Serializable
+data class Dish(
+    val name: String,
+    val weight: Double,
+    val calory: Double,
+)
+
+@Serializable
+data class GetMeal(
+    @SerialName("user_id")
+    var userId: String? = null,
+    @SerialName("correlation_id")
+    var correlationId: String,
+    @SerialName("type")
+    val type: String = "GET_MEAL"
+)
+
 suspend inline fun <reified T> ApplicationCall.updateThroughQueue(
     type: String,
     userId: String,
@@ -423,6 +458,63 @@ fun main() {
                             call.respond(HttpStatusCode.GatewayTimeout, "Timeout waiting for response")
                         } finally {
                             pendingResponses.remove(requestId)
+                        }
+                    } catch (e: NumberFormatException) {
+                        call.respond(HttpStatusCode.BadRequest)
+                    }
+                }
+                post("/api/nutrition/meal") {
+                    try {
+                        val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                        val body = call.receive<SaveMeal>()
+                        val correlationId = UUID.randomUUID().toString()
+                        body.userId = uid
+                        body.correlationId = correlationId
+                        val deferred = CompletableDeferred<ResponseMessage>()
+                        pendingResponses[correlationId] = deferred
+
+                        commands.publish(
+                            "nutrition-service:request-channel",
+                            Json.encodeToString(body)
+                        )
+                        try {
+                            val response = withTimeout(5_000) {
+                                deferred.await()
+                            }
+                            call.respond(HttpStatusCode.OK, response.payload)
+                        } catch (_: TimeoutCancellationException) {
+                            call.respond(HttpStatusCode.GatewayTimeout, "Timeout waiting for response")
+                        } finally {
+                            pendingResponses.remove(correlationId)
+                        }
+                    } catch (e: NumberFormatException) {
+                        call.respond(HttpStatusCode.BadRequest)
+                    }
+                }
+
+                get("/api/nutrition/meal") {
+                    try {
+                        val uid = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asString()
+                        val body = call.receive<GetMeal>()
+                        val correlationId = UUID.randomUUID().toString()
+                        body.userId = uid
+                        body.correlationId = correlationId
+                        val deferred = CompletableDeferred<ResponseMessage>()
+                        pendingResponses[correlationId] = deferred
+
+                        commands.publish(
+                            "nutrition-service:request-channel",
+                            Json.encodeToString(body)
+                        )
+                        try {
+                            val response = withTimeout(5_000) {
+                                deferred.await()
+                            }
+                            call.respond(HttpStatusCode.OK, response.payload)
+                        } catch (_: TimeoutCancellationException) {
+                            call.respond(HttpStatusCode.GatewayTimeout, "Timeout waiting for response")
+                        } finally {
+                            pendingResponses.remove(correlationId)
                         }
                     } catch (e: NumberFormatException) {
                         call.respond(HttpStatusCode.BadRequest)
